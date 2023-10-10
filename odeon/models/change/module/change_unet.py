@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 from torchmetrics import MetricCollection
 from torchmetrics.classification import (  # type: ignore[attr-defined]
     BinaryAccuracy, BinaryF1Score, BinaryJaccardIndex, BinaryPrecision,
-    BinaryRecall, BinarySpecificity)
+    BinaryRecall, BinarySpecificity, BinaryMatthewsCorrCoef)
 from pytorch_lightning.loggers import TensorBoardLogger
 import io
 import matplotlib.pyplot as plt
@@ -45,6 +45,7 @@ class ChangeUnet(pl.LightningModule):
                  lr: float = 0.0001,
                  threshold: float = 0.5,
                  scheduler='ReduceLROnPlateau',
+                 optimizer='adam',
                  weight: Optional[List] = None,
                  **kwargs: Any) -> None:
         """Initialize the LightningModule with a model and loss function
@@ -63,6 +64,7 @@ class ChangeUnet(pl.LightningModule):
         self.activation: Callable[[Tensor], Tensor] = torch.sigmoid # Warning if you use something else than bce for this model !!!
         self.threshold: float = threshold
         self.scheduler = scheduler
+        self.optimizer = optimizer
         """"
         if not isinstance(kwargs["ignore_index"], (int, type(None))):
             raise ValueError("ignore_index must be an int or None")
@@ -130,7 +132,9 @@ class ChangeUnet(pl.LightningModule):
              "bin_rec": BinaryRecall(),
              "bin_spec": BinarySpecificity(),
              "bin_pre": BinaryPrecision(),
-             "bin_f1": BinaryF1Score()},
+             "bin_f1": BinaryF1Score(),
+            #  "bin_mcc": BinaryMatthewsCorrCoef()
+             },
             prefix="train_")
         val_metrics = train_metrics.clone(prefix="val_")
         test_metrics = train_metrics.clone(prefix="test_")
@@ -190,11 +194,11 @@ class ChangeUnet(pl.LightningModule):
         # `log_every_n_steps` is a parameter to the `Trainer` object
         self.log("train_loss", loss, on_step=True, on_epoch=False)
         self.train_metrics(y_hat_hard, y)
-        debug = False
-        if debug:
-            if batch_idx < 6: # Only on batch 0 TODO : need random samples but still the same
-                y_hat = self.activation(y_hat)
-                self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='train')
+        # debug = False
+        # if debug:
+        #     if batch_idx < 6: # Only on batch 0 TODO : need random samples but still the same
+        #         y_hat = self.activation(y_hat)
+        #         self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='train')
         return {'loss': loss}
 
     def training_epoch_end(self, outputs: Any) -> None:
@@ -232,9 +236,9 @@ class ChangeUnet(pl.LightningModule):
         # `log_every_n_steps` is a parameter to the `Trainer` object
         self.log("val_loss", loss, on_step=False, on_epoch=True)
         self.val_metrics(y_hat_hard, y)
-        if batch_idx == 0: # Only on batch 0 TODO : need random samples but still the same
-            y_hat = self.activation(y_hat)
-            self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='val')
+        # if batch_idx == 0: # Only on batch 0 TODO : need random samples but still the same
+        #     y_hat = self.activation(y_hat)
+        #     self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='val')
         return {'val_loss': cast(Tensor, loss)}
 
     def log_tb_images(self, viz_batch, step, set='') -> None:
@@ -247,7 +251,8 @@ class ChangeUnet(pl.LightningModule):
                 break
 
         if tb_logger is None:
-            raise ValueError('TensorBoard Logger not found')
+            # raise ValueError('TensorBoard Logger not found')
+            return
 
         for img_idx, (T0, T1, y_true, y_pred, batch_idx) in enumerate(zip(*viz_batch)):
             # Create one single image with the 4 elements
@@ -317,9 +322,9 @@ class ChangeUnet(pl.LightningModule):
         # by default, the test and validation steps only log per *epoch*
         self.log("test_loss", loss, on_step=False, on_epoch=True)
         self.test_metrics(y_hat_hard, y)
-        if batch_idx == 0: # Only on batch 0 TODO : need random samples
-            y_hat = self.activation(y_hat)
-            self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='test')
+        # if batch_idx == 0: # Only on batch 0 TODO : need random samples
+        #     y_hat = self.activation(y_hat)
+        #     self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='test')
         return {'test_loss': cast(Tensor, loss)}
 
     def test_epoch_end(self, outputs: Any) -> None:
@@ -336,7 +341,7 @@ class ChangeUnet(pl.LightningModule):
         self.test_metrics.reset()
 
     def get_lr_scheduler(self, optimizer):
-        if self.scheduler is None or self.scheduler == 'ReduceLROnPlateau':
+        if self.scheduler == 'ReduceLROnPlateau':
             lr_scheduler = {
                 "scheduler": ReduceLROnPlateau(optimizer, patience=20),
                 "monitor": "val_loss",
@@ -349,6 +354,8 @@ class ChangeUnet(pl.LightningModule):
             lr_scheduler = {"scheduler": CosineAnnealingLR(optimizer, T_max=10),
                             "monitor": "val_loss",
                             }
+        elif self.scheduler is None:
+            lr_scheduler = None
         else:
             raise ValueError(
                 f"LR Scheduler '{self.scheduler}' is unknown."
@@ -362,10 +369,26 @@ class ChangeUnet(pl.LightningModule):
             a "lr dict" according to the pytorch lightning documentation --
             https://pytorch-lightning.readthedocs.io/en/latest/common/lightning_module.html#configure-optimizers
         """
-        optimizer = torch.optim.Adam(
-            self.model.parameters(), lr=self.lr, weight_decay=1e-4
-        )
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": self.get_lr_scheduler(optimizer)
-        }
+        if self.optimizer == "sgd":
+            optimizer = torch.optim.SGD(
+                self.model.parameters(), lr=self.lr, momentum=0.9
+            )
+        elif self.optimizer == "adam":
+            optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.lr, weight_decay=1e-4
+            )
+        else:
+            optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.lr, weight_decay=1e-4
+            )
+        
+        sch = self.get_lr_scheduler(optimizer)
+        if sch is None:
+            return {
+                "optimizer": optimizer
+            }
+        else:
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": sch
+            }
