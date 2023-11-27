@@ -8,7 +8,7 @@ from pytorch_lightning import Callback, LightningModule, Trainer
 from pytorch_lightning.loggers import TensorBoardLogger
 import torch
 
-from odeon.data.data_module import Input
+from odeon.data.data_module import Data, Input
 
 T = TypeVar('T', torch.Tensor, Dict, List)
 
@@ -41,7 +41,7 @@ class TensorboardGenerativeModelImageSampler(Callback):
     
     def __init__(
         self,
-        input: Input, # type: ignore
+        input: Input,
     ) -> None:
         """
         Args:
@@ -52,19 +52,44 @@ class TensorboardGenerativeModelImageSampler(Callback):
         self.input = input
 
     def on_train_epoch_end(self, trainer: Trainer, model: LightningModule) -> None:
-        self.log_image("train", self.input.fit, trainer, model)
+        self.log_image("train", self.input.fit, self.input.fit_params, trainer, model)
 
     def on_validation_epoch_end(self, trainer: Trainer, model: LightningModule) -> None:
-        self.log_image("val", self.input.validate, trainer, model)
+        self.log_image("val", self.input.validate, self.input.validate_params, trainer, model)
 
     def on_test_epoch_end(self, trainer: Trainer, model: LightningModule) -> None:
-        self.log_image("test", self.input.test, trainer, model)
+        self.log_image("test", self.input.test, self.input.test_params, trainer, model)
 
-    def log_image(self, stage: str, data: Input, trainer: Trainer, model: LightningModule) -> None:
+    def denormalize_img_as_tensor(self, image: torch.Tensor, mean, std):
+        """
+        Args:
+            tensor (Tensor): Tensor image of size (C, H, W) to be normalized.
+        Returns:
+            Tensor: Normalized image.
+        """
+        for t, m, s in zip(image, mean, std):
+            t.mul_(s).add_(m)
+
+        return image
+
+    def log_image(self, stage: str, data: Data, params: Dict, trainer: Trainer, model: LightningModule) -> None:
         df = data.dataframe
         samples = df[df["sampled"] == True]
         samples_t = []
-        for i in samples.index.values:
+        mean_T0 = [0.0, 0.0, 0.0]
+        std_T0 = [1.0, 1.0, 1.0]
+        mean_T1 = [0.0, 0.0, 0.0]
+        std_T1 = [1.0, 1.0, 1.0]
+        if "mean" in params["input_fields"]["T0"]:
+            mean_T0 = params["input_fields"]["T0"]["mean"]
+        if "std" in params["input_fields"]["T0"]:
+            std_T0 = params["input_fields"]["T0"]["std"]
+        if "mean" in params["input_fields"]["T1"]:
+            mean_T1 = params["input_fields"]["T1"]["mean"]
+        if "std" in params["input_fields"]["T1"]:
+            std_T1 = params["input_fields"]["T1"]["std"]
+
+        for i in samples.index.values: # type: ignore
             sample = data.dataset[i]
             sample["idx"] = i
             samples_t.append(sample)
@@ -78,17 +103,22 @@ class TensorboardGenerativeModelImageSampler(Callback):
             T1 = samples_d['T1']
             y = samples_d['mask']
             y_hat = model(T0, T1)
-            y_hat = torch.sigmoid(y_hat) # WARNING: how to know activation in general?
+            if (y_hat.shape[1] > 1):
+                y_hat = torch.argmax(y_hat, dim=1, keepdim=True)
+            else:
+                y_hat = torch.sigmoid(y_hat) # WARNING: how to know activation in general?
             self.log_tb_images(
                 trainer,
                 (samples_d['T0'], samples_d['T1'], y, y_hat, samples_d["idx"]),
                 ['T0', 'T1', 'GroundTruth', 'Prediction'],
                 step=model.global_step,
+                mean_T0=mean_T0, std_T0=std_T0,
+                mean_T1=mean_T1, std_T1=std_T1,
                 set=stage
             )
             model.train()
 
-    def log_tb_images(self, trainer, viz_batch, col_titles, step, set='') -> None:
+    def log_tb_images(self, trainer, viz_batch, col_titles, step, mean_T0, std_T0, mean_T1, std_T1, set='') -> None:
         # Get tensorboard logger
         tb_logger = None
         for logger in trainer.loggers:
@@ -102,11 +132,20 @@ class TensorboardGenerativeModelImageSampler(Callback):
 
         for img_idx, (T0, T1, y_true, y_pred, idx) in enumerate(zip(*viz_batch)):
             # Create one single image with the 4 elements
-            figure = self.image_line([T0, T1, y_true * 255.0, y_pred * 255.0], col_titles)
-            image = self.plot_to_image(figure)
-            tb_logger.add_image(f"img_{set}_{idx}", image, step)
+            if y_true.max().item() <= 1.0:
+                y_true = y_true * 255.0
+                y_true = y_true.long()
 
-        
+            if y_pred.max().item() <= 1.0:
+                y_pred = y_pred * 255.0
+                y_pred = y_pred.long()
+
+            T0 = self.denormalize_img_as_tensor(T0, mean_T0, std_T0)
+            T1 = self.denormalize_img_as_tensor(T1, mean_T1, std_T1)
+
+            figure = self.image_line([T0, T1, y_true, y_pred], col_titles)
+            image = self.plot_to_image(figure)
+            tb_logger.add_image(f"img_{set}_{idx}", image, step)        
 
     def log_tb_images_grid(self, trainer, viz_batch, row_titles, col_titles, step, set='') -> None:
 

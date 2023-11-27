@@ -57,7 +57,9 @@ class UniversalDataset(Dataset):
             self.patch_size[1] * self.patch_resolution[1])
         self.random_window = random_window
         self.overlap = overlap if isinstance(overlap, Tuple) else (overlap, overlap)
-        self._crs = self.data.crs
+        self._crs = None
+        if isinstance(self.data, gpd.GeoDataFrame):
+            self._crs = self.data.crs
         self._debug = debug
         # case inference by zone, we split
         if self.by_zone and self.inference_mode:

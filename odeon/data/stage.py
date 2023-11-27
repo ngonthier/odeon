@@ -68,7 +68,7 @@ class DataFactory:
             self._dataframe.update(spl)
             pd.set_option("max_colwidth", None)
             pd.set_option('display.max_columns', None)
-            print("Sampled", spl[["id", "T0", "T1", "change"]])
+            print("Sampled", spl)
 
         self._transform = AlbuTransform(input_fields=self.input_fields,
                                         pipe=self.transforms)
@@ -132,16 +132,16 @@ class DataFactory:
                    stage: STAGES_OR_VALUE,
                    input_file: URI,
                    input_fields: Dict,
-                   transform: Union[List[Callable], None] = None,
-                   dataloader_options: Dict = None,
+                   transform: Optional[List[Callable]] = None,
+                   dataloader_options: Optional[Dict] = None,
                    root_dir: Optional[URI] = None,
                    input_files_has_header: bool = True,
                    by_zone: bool = False,
-                   patch_size: Union[int, Tuple[int, int], List[int]] = None,
-                   patch_resolution: Union[float, Tuple[float, float], List[float]] = None,
+                   patch_size: Optional[Union[int, Tuple[int, int], List[int]]] = None,
+                   patch_resolution: Optional[Union[float, Tuple[float, float], List[float]]] = None,
                    random_window: bool = True,
-                   overlap: Union[GeoTuple] = None,
-                   cache_dataset: Union[bool] = False,
+                   overlap: Optional[GeoTuple] = None,
+                   cache_dataset: Optional[bool] = False,
                    debug: bool = False,
                    nb_samples = 0,
                    sample_seed = 0) -> Tuple[DataLoader, Dataset, Callable, DATAFRAME]:

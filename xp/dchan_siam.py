@@ -1,6 +1,6 @@
 import os
 import torch
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from pytorch_lightning import Trainer
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import LearningRateMonitor, EarlyStopping
@@ -160,6 +160,11 @@ def main():
     if 'TRAIN_TRANSFORM' in os.environ:
         has_transform = eval(os.environ['TRAIN_TRANSFORM'])
 
+    transform_type = 0
+    if 'TRAIN_TRANSFORM_TYPE' in os.environ:
+        transform_type = eval(os.environ['TRAIN_TRANSFORM_TYPE'])
+
+
     has_log = True
     if 'TRAIN_LOG' in os.environ:
         has_log = eval(os.environ['TRAIN_LOG'])
@@ -207,6 +212,7 @@ def main():
     print("loss", loss)
     print("train_datasets", train_datasets)
     print("seed", seed)
+    print("transform_type", transform_type)
 
 
     path_model_checkpoint = '/var/data/shared/dchan/checkpoints'
@@ -246,10 +252,25 @@ def main():
 
     transform = None
     if has_transform:
-        transform = [
-            A.RandomRotate90(p=0.5),
-            A.OneOf([A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5)], p=0.75)
-        ]
+        if transform_type == 0:
+            transform = [
+                A.RandomRotate90(p=0.5),
+                A.OneOf([A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5)], p=0.75)
+            ]
+        elif transform_type == 1:
+            transform = [
+                A.OneOf([A.RandomResizedCrop(height=512,
+                                             width=512,
+                                             scale=(0.5, 1.5), p=1.0),
+                        A.RandomCrop(height=512,
+                                     width=512)], p=1.0),
+                A.RandomRotate90(p=0.5),
+                A.OneOf([A.HorizontalFlip(p=0.5), A.VerticalFlip(p=0.5)], p=0.75),
+                A.Transpose(p=0.5),
+                A.GaussianBlur(p=0.5, blur_limit=(3, 3)),
+                A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2, p=0.5)
+            ]
+
 
     nb_samples = 10
     fit_params = build_params(train_datasets[0], root_dir, fold_nb, batch_size, num_workers, transform, nb_samples, seed)
@@ -285,7 +306,7 @@ def main():
     # if torch.cuda.is_available():
     #     accelerator = 'gpu'
 
-    trainer_args = {}
+    trainer_args: Dict[str, Any] = {}
     if gpus == 0:
         trainer_args = {
             'accelerator': 'cpu',

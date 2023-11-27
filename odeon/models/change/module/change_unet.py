@@ -2,6 +2,7 @@
 
 # import warnings
 from functools import partial
+import random
 from typing import Any, Callable, Dict, Optional, Tuple, cast, List
 
 # import matplotlib.pyplot as plt
@@ -11,7 +12,7 @@ import torch
 import torch.nn as nn
 from torch import Tensor
 # from torch.nn.functional import one_hot
-from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR, CosineAnnealingLR
+from torch.optim.lr_scheduler import ReduceLROnPlateau, ExponentialLR, CosineAnnealingLR, LinearLR, PolynomialLR, ChainedScheduler
 from torch.utils.data import DataLoader
 # from torchmetrics import Metric
 from torchmetrics import MetricCollection
@@ -25,8 +26,42 @@ import PIL.Image
 from torchvision.transforms import ToTensor
 
 from odeon.core.types import OdnMetric
+from odeon.losses.dice import DiceLoss
 from odeon.models.change.arch.change_unet import FCSiamConc, FCSiamDiff
+from odeon.models.change.arch.changeformer.ChangeFormer import ChangeFormerV6
+# from odeon.models.change.arch.fc_siam_conc_original import FCSiamConcOriginal
+# from odeon.models.change.arch.fc_siam_conc import OrigFCSiamConc
 from odeon.models.core.models import ModelRegistry
+# from mmseg.models.utils import resize
+
+
+import warnings
+
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+def resize(input,
+           size=None,
+           scale_factor=None,
+           mode='nearest',
+           align_corners=None,
+           warning=True):
+    if warning:
+        if size is not None and align_corners:
+            input_h, input_w = tuple(int(x) for x in input.shape[2:])
+            output_h, output_w = tuple(int(x) for x in size)
+            if output_h > input_h or output_w > output_h:
+                if ((output_h > 1 and output_w > 1 and input_h > 1
+                     and input_w > 1) and (output_h - 1) % (input_h - 1)
+                        and (output_w - 1) % (input_w - 1)):
+                    warnings.warn(
+                        f'When align_corners={align_corners}, '
+                        'the output would more aligned if '
+                        f'input size {(input_h, input_w)} is `x+1` and '
+                        f'out size {(output_h, output_w)} is `nx+1`')
+    return F.interpolate(input, size, scale_factor, mode, align_corners)
+
 
 # https://github.com/pytorch/pytorch/issues/60979
 # https://github.com/pytorch/pytorch/pull/61045
@@ -41,12 +76,14 @@ class ChangeUnet(pl.LightningModule):
     def __init__(self,
                  model: str = 'fc_siam_conc',
                  model_params: Optional[Dict] = None,
-                 loss: str = 'bce',
+                 loss: str | List[str] = 'bce',
                  lr: float = 0.0001,
                  threshold: float = 0.5,
                  scheduler='ReduceLROnPlateau',
                  optimizer='adam',
                  weight: Optional[List] = None,
+                 random_swap: float = 0.0,
+                 use_syncbn: bool = False,
                  **kwargs: Any) -> None:
         """Initialize the LightningModule with a model and loss function
 
@@ -55,7 +92,14 @@ class ChangeUnet(pl.LightningModule):
         """
         super().__init__()
         self.model = self.configure_model(model=model, model_params=model_params)
-        self.loss = self.configure_loss(loss=loss, weight=weight)
+        if use_syncbn:
+            self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+
+        if isinstance(loss, str):
+            self.losses = [self.configure_loss(loss=loss, weight=weight)]
+        elif(loss, List[str]):
+            self.losses = self.configure_losses(loss, weight)
+
         self.train_metrics, self.val_metrics, self.test_metrics = self.configure_metrics(metric_params={})
         # Creates `self.hparams` from kwargs
         self.save_hyperparameters()  # type: ignore[operator]
@@ -65,6 +109,7 @@ class ChangeUnet(pl.LightningModule):
         self.threshold: float = threshold
         self.scheduler = scheduler
         self.optimizer = optimizer
+        self.random_swap = random_swap
         """"
         if not isinstance(kwargs["ignore_index"], (int, type(None))):
             raise ValueError("ignore_index must be an int or None")
@@ -97,6 +142,16 @@ class ChangeUnet(pl.LightningModule):
             return FCSiamDiff(**model_params)
         elif model == "fc_siam_conc":
             return FCSiamConc(**model_params)
+        # elif model == "fc_siam_conc_original":
+        #     return FCSiamConcOriginal(**model_params)
+        elif model == "change_former":
+            ps = {k: v for k, v in model_params.items() if k != "encoder_weights" }
+            m = ChangeFormerV6(**ps)
+            if "encoder_weights" in model_params:
+                ckpt_path = str(model_params["encoder_weights"])
+                checkpoint = torch.load(ckpt_path, map_location=self.device)
+                m.load_state_dict(checkpoint['model_G_state_dict'])
+            return m
         else:
             raise ValueError(
                 f"Model type '{model}' is not valid. "
@@ -105,17 +160,32 @@ class ChangeUnet(pl.LightningModule):
 
     def configure_loss(self,
                        loss: str, weight: Optional[List] =  None) -> nn.Module:
+        wt: Optional[Tensor] = None
         if weight is not None:
-            weight = torch.Tensor(weight)
+            wt = torch.Tensor(weight)
         if loss == "bce":
             # ignore_value = -1000 if self.ignore_index is None else self.ignore_index
             self.need_apply_sigmoid = True
-            return nn.BCEWithLogitsLoss(reduction='mean', pos_weight=weight) # This loss combines a Sigmoid layer and the BCELoss in one single class.
+            return nn.BCEWithLogitsLoss(reduction='mean', pos_weight=wt) # This loss combines a Sigmoid layer and the BCELoss in one single class.
         elif loss == "focal":
             return smp.losses.FocalLoss("binary", normalized=True)
+        elif loss == "ce":
+            return nn.CrossEntropyLoss(reduction='mean', ignore_index=255, weight=wt)        
+        elif loss == "dice":
+            return DiceLoss()
         else:
             raise ValueError(f"Loss type '{loss}' is not valid. "
                              f"Currently, supports 'bce', or 'focal' loss.")
+
+    def configure_losses(self,
+                       losses: List[str], weight: Optional[List] =  None) -> List[nn.Module]:
+        ls: List[nn.Module] = []
+        for l in losses:
+            loss = self.configure_loss(l, weight).to(self.device)
+            ls.append(loss)
+
+        return ls
+        
 
     def configure_lr(self,
                      lr: float,
@@ -166,13 +236,42 @@ class ChangeUnet(pl.LightningModule):
             case _:
                 raise RuntimeError('something went in configuration activation')
 
-    def step(self, batch: Dict) -> Any:
+    def step(self, batch: Dict, rnd: bool = False) -> Any:
         T0 = batch['T0']
         T1 = batch['T1']
+        if rnd and random.random() < self.random_swap:
+            tmp = T1
+            T1 = T0
+            T0 = tmp
         y = batch['mask']
         y_hat = self(T0=T0, T1=T1)
 
         return y_hat, y
+
+    def post_compute(self, y: Tensor, y_hat: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
+        if y_hat.shape[2] != y.shape[2] or y_hat.shape[3] != y.shape[3]:
+            y_hat = resize(
+                input=y_hat,
+                size=y.shape[2:],
+                mode='bilinear',
+                align_corners=False)
+            
+        if y_hat.shape[1] > 1:
+            y_hat_hard = torch.argmax(y_hat, dim=1)
+            y_out = y.squeeze(1).long()
+        else:
+            # no need of preliminary sigmoid, in binary case, we use BCEWithLogits
+            y_hat_hard = (y_hat > self.threshold).to(y.device)
+            y_out = y.float()
+
+        # trick to not care about loss tensor init
+        loss = self.losses[0](y_hat, y_out)
+
+        if len(self.losses) > 1:
+            for loss_fn in self.losses[1:]:
+                loss += loss_fn(y_hat, y_out)
+
+        return (loss, y_hat_hard, y_out)
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int, *args: Any, **kwargs: Any) -> Any:
         """
@@ -187,13 +286,13 @@ class ChangeUnet(pl.LightningModule):
         -------
 
         """
-        y_hat, y = self.step(batch=batch)
-        y_hat_hard = y_hat > self.threshold
-        loss = self.loss(y_hat, y.float())
+        # multi-class output
+        y_hat, y = self.step(batch=batch, rnd=True)
+        loss, y_hat_hard, y_out = self.post_compute(y, y_hat)
         # by default, the train step logs every `log_every_n_steps` steps where
         # `log_every_n_steps` is a parameter to the `Trainer` object
         self.log("train_loss", loss, on_step=True, on_epoch=False)
-        self.train_metrics(y_hat_hard, y)
+        self.train_metrics(y_hat_hard, y_out)
         # debug = False
         # if debug:
         #     if batch_idx < 6: # Only on batch 0 TODO : need random samples but still the same
@@ -230,12 +329,12 @@ class ChangeUnet(pl.LightningModule):
 
         """
         y_hat, y = self.step(batch=batch)
-        y_hat_hard = y_hat > self.threshold
-        loss = self.loss(y_hat, y.float())
+        loss, y_hat_hard, y_out = self.post_compute(y, y_hat)
+
         # by default, the train step logs every `log_every_n_steps` steps where
         # `log_every_n_steps` is a parameter to the `Trainer` object
         self.log("val_loss", loss, on_step=False, on_epoch=True)
-        self.val_metrics(y_hat_hard, y)
+        self.val_metrics(y_hat_hard, y_out)
         # if batch_idx == 0: # Only on batch 0 TODO : need random samples but still the same
         #     y_hat = self.activation(y_hat)
         #     self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='val')
@@ -317,11 +416,10 @@ class ChangeUnet(pl.LightningModule):
 
         """
         y_hat, y = self.step(batch=batch)
-        y_hat_hard = y_hat > self.threshold
-        loss = self.loss(y_hat, y.float())
+        loss, y_hat_hard, y_out = self.post_compute(y, y_hat)
         # by default, the test and validation steps only log per *epoch*
         self.log("test_loss", loss, on_step=False, on_epoch=True)
-        self.test_metrics(y_hat_hard, y)
+        self.test_metrics(y_hat_hard, y_out)
         # if batch_idx == 0: # Only on batch 0 TODO : need random samples
         #     y_hat = self.activation(y_hat)
         #     self.log_tb_images((batch['T0'], batch['T1'], y, y_hat, [batch_idx]*len(y)), step=self.global_step, set='test')
@@ -354,6 +452,16 @@ class ChangeUnet(pl.LightningModule):
             lr_scheduler = {"scheduler": CosineAnnealingLR(optimizer, T_max=10),
                             "monitor": "val_loss",
                             }
+        elif self.scheduler == 'LinearLR+PolyLR':
+            sch = ChainedScheduler([
+                LinearLR(optimizer, start_factor=1e-6, end_factor=1.0, total_iters=1000),
+                PolynomialLR(optimizer, power=1.0, total_iters=39000)
+            ])              
+            lr_scheduler = {
+                "scheduler": sch,
+                "monitor": "val_loss",
+                "interval": "step"
+            }
         elif self.scheduler is None:
             lr_scheduler = None
         else:
@@ -377,10 +485,16 @@ class ChangeUnet(pl.LightningModule):
             optimizer = torch.optim.Adam(
                 self.model.parameters(), lr=self.lr, weight_decay=1e-4
             )
-        else:
-            optimizer = torch.optim.Adam(
-                self.model.parameters(), lr=self.lr, weight_decay=1e-4
+        elif self.optimizer == "adamw":
+            optimizer = torch.optim.AdamW(
+                self.model.parameters(), lr=self.lr, betas=(0.9, 0.999), weight_decay=0.01
             )
+        else:
+            raise ValueError(f"Unknown optimizer {self.optimizer}")        
+        # else:
+        #     optimizer = torch.optim.Adam(
+        #         self.model.parameters(), lr=self.lr, weight_decay=1e-4
+        #     )
         
         sch = self.get_lr_scheduler(optimizer)
         if sch is None:
