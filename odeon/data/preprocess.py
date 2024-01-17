@@ -77,9 +77,19 @@ class UniversalPreProcessor:
 
                 path = data[value["name"]] if self.root_dir is None else Path(str(self.root_dir)) / data[value["name"]]
                 band_indices = value["band_indices"] if "band_indices" in value else None
+
+                dtype_max = value["dtype_max"] if "dtype_max" in value else None
+                if dtype_max is None and "dtype" in value:
+                    dtype = value["dtype"]
+                    if dtype in DTYPE_MAX.keys():
+                        dtype_max = DTYPE_MAX[dtype]
+
                 output_dict[key] = self.apply_to_mask(path=path,
                                                       band_indices=band_indices,
-                                                      bounds=bounds)
+                                                      bounds=bounds,
+                                                      post_process=value['post_process'] if 'post_process' in value else None,
+                                                      dtype_max=dtype_max
+                                                      )
 
             if "geometry" in data.keys():
                 output_dict["geometry"] = np.array(data["geometry"].bounds)
@@ -94,8 +104,8 @@ class UniversalPreProcessor:
                         band_indices: Optional[List] = None,
                         bounds: Optional[List] = None,
                         dtype_max: float = DTYPE_MAX[InputDType.UINT8.value],
-                        mean: Optional[List] = None,
-                        std: Optional[List] = None) -> np.ndarray:
+                        mean: Optional[np.ndarray] = None,
+                        std: Optional[np.ndarray] = None) -> np.ndarray:
 
         # TODO Could be interesting to optimize window computation (DON'T REPEAT COMPUTATION FOR EACH MODALITY)
         # TODO But it could bring side effect, needs reflection
@@ -109,30 +119,35 @@ class UniversalPreProcessor:
             raster = raster[..., np.newaxis]
         img = reshape_as_image(raster)
         if mean is None or std is None:
-
             # apply centering between 0 and 1
             # to apply centering between -1 and 1, replace change MEAN_DEFAULT_VALUE and STD_DEFAULT_VALUE values to 0.5
-            mean = [MEAN_DEFAULT_VALUE]
-            mean = np.repeat(mean, raster.shape[0])
-            std = [STD_DEFAULT_VALUE]
-            std = np.repeat(std, raster.shape[0])
+            mean = np.repeat([MEAN_DEFAULT_VALUE], raster.shape[0])
+            mean = np.repeat([STD_DEFAULT_VALUE], raster.shape[0])
+
         return normalize(img=img,
                          mean=mean,
-                         std=std,
+                         std=mean,
                          max_pixel_value=dtype_max)
 
     def apply_to_mask(self,
                       path: URI,
                       band_indices: Optional[List] = None,
-                      bounds: Optional[List] = None
+                      bounds: Optional[List] = None,
+                      post_process: Optional[str] = None,
+                      dtype_max: Optional[float] = DTYPE_MAX[InputDType.UINT8.value]
                       ) -> np.ndarray:
         # TODO Could be interesting to optimize window computation (DON'T REPEAT COMPUTATION FOR EACH MODALITY)
         # TODO but it bring side effect
         src, window = self._get_dataset(path=path, bounds=bounds)
         mask = read(src, band_indices=band_indices, window=window, height=self.patch_size, width=self.patch_size)
+        if post_process is not None:
+            if post_process == "floor_div":
+                mask = mask // dtype_max
         if self.cache_dataset is False:
             src.close()
-        return reshape_as_image(mask)
+        img = reshape_as_image(mask)
+        return img
+
 
     def _get_dataset(self,
                      path: Union[str, Path],
@@ -166,7 +181,7 @@ class UniversalDeProcessor:
         ...
 
 
-def normalize(img, mean, std, max_pixel_value=float(DTYPE_MAX[InputDType.UINT8.value])) -> np.ndarray:
+def normalize(img: np.ndarray, mean: np.ndarray, std: np.ndarray, max_pixel_value=float(DTYPE_MAX[InputDType.UINT8.value])) -> np.ndarray:
 
     mean = np.array(mean, dtype=np.float32)
     mean *= max_pixel_value
@@ -179,7 +194,7 @@ def normalize(img, mean, std, max_pixel_value=float(DTYPE_MAX[InputDType.UINT8.v
     return img
 
 
-def denoromalize_img_as_tensor(image: Tensor, mean, std):
+def denormalize_img_as_tensor(image: Tensor, mean, std):
     """
             Args:
                 tensor (Tensor): Tensor image of size (C, H, W) to be normalized.

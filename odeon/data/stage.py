@@ -14,6 +14,7 @@ from odeon.data.core.dataloader_utils import (
 from .dataset import UniversalDataset
 from .transform import AlbuTransform
 
+import pandas as pd
 
 @dataclass(init=True, repr=True, eq=True, order=True, unsafe_hash=True, frozen=False, slots=True)
 class DataFactory:
@@ -33,6 +34,12 @@ class DataFactory:
     overlap: Union[GeoTuple] = field(default_factory=lambda: DEFAULT_OVERLAP)
     cache_dataset: Union[bool] = False
     debug: bool = False
+
+    # number of randomly selected images
+    nb_samples: int = 0,
+    # seed for random image selection
+    sample_seed: int = 0
+
     # TODO see how we could handle different crs, torchgeo style or another solution
     #  crs: Union[str, Dict, None] = "EPSG:2154"
     _dataloader: DataLoader = field(init=False)
@@ -52,6 +59,17 @@ class DataFactory:
         self._inference_mode = False if self.stage in [Stages.FIT, Stages.FIT.value] else True
         self._dataframe = create_dataframe_from_file(path=self.input_file,
                                                      options={'header': self.input_files_has_header})
+        
+        # sample elements from dataframe and flag them
+        if self.nb_samples > 0:
+            self._dataframe["sampled"] = False
+            spl = self._dataframe.sample(n=self.nb_samples, random_state=self.sample_seed)
+            spl.sampled = True
+            self._dataframe.update(spl)
+            pd.set_option("max_colwidth", None)
+            pd.set_option('display.max_columns', None)
+            print("Sampled", spl)
+
         self._transform = AlbuTransform(input_fields=self.input_fields,
                                         pipe=self.transforms)
         self._dataset = UniversalDataset(input_fields=self.input_fields,
@@ -114,17 +132,19 @@ class DataFactory:
                    stage: STAGES_OR_VALUE,
                    input_file: URI,
                    input_fields: Dict,
-                   transform: Union[List[Callable], None] = None,
-                   dataloader_options: Dict = None,
+                   transform: Optional[List[Callable]] = None,
+                   dataloader_options: Optional[Dict] = None,
                    root_dir: Optional[URI] = None,
                    input_files_has_header: bool = True,
                    by_zone: bool = False,
-                   patch_size: Union[int, Tuple[int, int], List[int]] = None,
-                   patch_resolution: Union[float, Tuple[float, float], List[float]] = None,
+                   patch_size: Optional[Union[int, Tuple[int, int], List[int]]] = None,
+                   patch_resolution: Optional[Union[float, Tuple[float, float], List[float]]] = None,
                    random_window: bool = True,
-                   overlap: Union[GeoTuple] = None,
-                   cache_dataset: Union[bool] = False,
-                   debug: bool = False) -> Tuple[DataLoader, Dataset, Callable, DATAFRAME]:
+                   overlap: Optional[GeoTuple] = None,
+                   cache_dataset: Optional[bool] = False,
+                   debug: bool = False,
+                   nb_samples = 0,
+                   sample_seed = 0) -> Tuple[DataLoader, Dataset, Callable, DATAFRAME]:
         if isinstance(stage, str) and stage not in [str(Stages.FIT.value),
                                                     str(Stages.VALIDATE.value),
                                                     str(Stages.TEST.value),
@@ -148,5 +168,7 @@ class DataFactory:
                            random_window=random_window,
                            root_dir=root_dir,
                            input_files_has_header=input_files_has_header,
-                           by_zone=by_zone)
+                           by_zone=by_zone,
+                           nb_samples=nb_samples,
+                           sample_seed=sample_seed)
         return data_factory.dataloader, data_factory.dataset, data_factory.transform, data_factory.dataframe
