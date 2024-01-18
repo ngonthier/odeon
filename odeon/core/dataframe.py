@@ -38,8 +38,7 @@ def create_pandas_dataframe_from_file(path: URI, options: Optional[Dict] = None)
     -------
      DataFrame
     """
-    print('options', options)
-    return pd.read_csv(path, header=int(options["header"]))\
+    return pd.read_csv(path, header=options["header"])\
         if (options is not None and "header" in options.keys())\
         else pd.read_csv(path)
 

@@ -58,7 +58,9 @@ class DataFactory:
 
         self._inference_mode = False if self.stage in [Stages.FIT, Stages.FIT.value] else True
         self._dataframe = create_dataframe_from_file(path=self.input_file,
-                                                     options={'header': self.input_files_has_header})
+                                                     options={'header': 0 } if self.input_files_has_header else None)
+        
+        print("self._dataframe",self._dataframe.head())
         
         # sample elements from dataframe and flag them
         if self.nb_samples > 0:
