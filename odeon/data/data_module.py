@@ -39,20 +39,20 @@ class Input(LightningDataModule):
     """
 
     def __init__(self,
-                 fit_params: List[Dict] | Dict = None,
-                 validate_params: List[Dict] | Dict = None,
-                 test_params: Dict = None,
-                 predict_params: Dict = None):
+                 fit_params: Optional[List[Dict] | Dict] = None,
+                 validate_params: Optional[List[Dict] | Dict] = None,
+                 test_params: Optional[Dict] = None,
+                 predict_params: Optional[Dict] = None):
         super().__init__()
         self.fit_params = fit_params
         self.validate_params = validate_params
         self.test_params = test_params
         self.predict_params = predict_params
         self._fit: Data | Dict[str, Data]
-        self._validate: Data
+        self._validate: Data | Dict[str, Data]
         self._test: Data
         self._predict: Data
-
+        
     def setup(self, stage: Optional[STAGES_OR_VALUE] = None) -> None:
         if stage == Stages.FIT.value or stage == Stages.FIT:
             assert self.fit_params, f'you want to run a stage {stage} but you have not filled {stage}_params :' \
@@ -100,15 +100,15 @@ class Input(LightningDataModule):
         return self._fit
 
     @property
-    def validate(self) -> Data:
+    def validate(self) -> Data | Dict[str, Data]:
         return self._validate
 
     @property
-    def test(self) -> Data:
+    def test(self) -> Data | Dict[str, Data]:
         return self._test
 
     @property
-    def predict(self) -> Data:
+    def predict(self) -> Data | Dict[str, Data]:
         return self._predict
 
     def train_dataloader(self) -> TRAIN_DATALOADERS:

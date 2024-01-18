@@ -74,15 +74,15 @@ class GenericRegistry(RegistryMixin, FactoryMixin, Generic[T]):
     @classmethod
     def register_class(cls, cl: T, name: str = 'none', aliases: Optional[Union[str, List[str]]] = None):
         if name != 'none':
-            if name in cls._registry:
-                raise KeyError(f'name {name} already in Registry {str(cls)}')
-            else:
-                cls.register_fn(cl=cl, name=name)
+            # if name in cls._registry:
+            #     raise KeyError(f'name {name} already in Registry {str(cls)}')
+            # else:
+            cls.register_fn(cl=cl, name=name)
         if isinstance(aliases, str):
-            if aliases in cls._registry:
-                raise KeyError(f'alias {aliases} already in Registry {str(cls)}')
-            else:
-                cls.register_fn(cl=cl, name=name)
+            # if aliases in cls._registry:
+            #     raise KeyError(f'alias {aliases} already in Registry {str(cls)}')
+            # else:
+            cls.register_fn(cl=cl, name=name)
         elif isinstance(aliases, List):
             if len(aliases) > 0:
                 cls.register_class(cl, name='none', aliases=aliases[1:])
