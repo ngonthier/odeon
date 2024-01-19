@@ -60,8 +60,6 @@ class DataFactory:
         self._dataframe = create_dataframe_from_file(path=self.input_file,
                                                      options={'header': 0 } if self.input_files_has_header else None)
         
-        print("self._dataframe",self._dataframe.head())
-        
         # sample elements from dataframe and flag them
         if self.nb_samples > 0:
             self._dataframe["sampled"] = False
