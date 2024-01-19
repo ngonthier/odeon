@@ -27,6 +27,7 @@ from torchvision.transforms import ToTensor
 
 from odeon.core.types import OdnMetric
 from odeon.losses.dice import DiceLoss
+from segmentation_models_pytorch.losses import JaccardLoss
 from odeon.models.change.arch.change_unet import FCSiamConc, FCSiamDiff
 from odeon.models.change.arch.changeformer.ChangeFormer import ChangeFormerV6
 # from odeon.models.change.arch.fc_siam_conc_original import FCSiamConcOriginal
@@ -84,6 +85,7 @@ class ChangeUnet(pl.LightningModule):
                  weight: Optional[List] = None,
                  random_swap: float = 0.0,
                  use_syncbn: bool = False,
+                 ignore_index: int | None = None,
                  **kwargs: Any) -> None:
         """Initialize the LightningModule with a model and loss function
 
@@ -94,6 +96,13 @@ class ChangeUnet(pl.LightningModule):
         self.model = self.configure_model(model=model, model_params=model_params)
         if use_syncbn:
             self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
+
+        self.ignore_index = ignore_index
+        if (self.ignore_index is not None) and not ((loss == "bce")):
+            warnings.warn(
+                "ignore_index has no effect on training when loss!='bce' or 'ce'. It needs to be implemented",
+                UserWarning,
+            )
 
         if isinstance(loss, str):
             self.losses = [self.configure_loss(loss=loss, weight=weight)]
@@ -110,16 +119,6 @@ class ChangeUnet(pl.LightningModule):
         self.scheduler = scheduler
         self.optimizer = optimizer
         self.random_swap = random_swap
-        """"
-        if not isinstance(kwargs["ignore_index"], (int, type(None))):
-            raise ValueError("ignore_index must be an int or None")
-        if (kwargs["ignore_index"] is not None) and (kwargs["loss"] == "jaccard"):
-            warnings.warn(
-                "ignore_index has no effect on training when loss='jaccard'",
-                UserWarning,
-            )
-        self.ignore_index = kwargs["ignore_index"]
-        """
 
     def configure_model(self,
                         model: str = 'fc_siam_conc',
@@ -166,13 +165,18 @@ class ChangeUnet(pl.LightningModule):
         if loss == "bce":
             # ignore_value = -1000 if self.ignore_index is None else self.ignore_index
             self.need_apply_sigmoid = True
-            return nn.BCEWithLogitsLoss(reduction='mean', pos_weight=wt) # This loss combines a Sigmoid layer and the BCELoss in one single class.
+            if self.ignore_index is None:
+                return nn.BCEWithLogitsLoss(reduction='mean', pos_weight=wt) # This loss combines a Sigmoid layer and the BCELoss in one single class.
+            else:
+                return nn.BCEWithLogitsLoss(reduction='none', pos_weight=wt) # This loss combines a Sigmoid layer and the BCELoss in one single class.
         elif loss == "focal":
             return smp.losses.FocalLoss("binary", normalized=True)
         elif loss == "ce":
-            return nn.CrossEntropyLoss(reduction='mean', ignore_index=255, weight=wt)        
+            return nn.CrossEntropyLoss(reduction='mean', weight=wt)        
         elif loss == "dice":
             return DiceLoss()
+        elif loss == "jaccard":
+            return JaccardLoss('binary')
         else:
             raise ValueError(f"Loss type '{loss}' is not valid. "
                              f"Currently, supports 'bce', or 'focal' loss.")
@@ -197,12 +201,12 @@ class ChangeUnet(pl.LightningModule):
     def configure_metrics(self, metric_params: Dict) -> Tuple[OdnMetric, OdnMetric, OdnMetric]:
 
         train_metrics = MetricCollection(
-            {"bin_acc": BinaryAccuracy(),
-             "bin_iou": BinaryJaccardIndex(),
-             "bin_rec": BinaryRecall(),
-             "bin_spec": BinarySpecificity(),
-             "bin_pre": BinaryPrecision(),
-             "bin_f1": BinaryF1Score(),
+            {"bin_acc": BinaryAccuracy(ignore_index=self.ignore_index),
+             "bin_iou": BinaryJaccardIndex(ignore_index=self.ignore_index),
+             "bin_rec": BinaryRecall(ignore_index=self.ignore_index),
+             "bin_spec": BinarySpecificity(ignore_index=self.ignore_index),
+             "bin_pre": BinaryPrecision(ignore_index=self.ignore_index),
+             "bin_f1": BinaryF1Score(ignore_index=self.ignore_index),
             #  "bin_mcc": BinaryMatthewsCorrCoef()
              },
             prefix="train_")
@@ -263,15 +267,34 @@ class ChangeUnet(pl.LightningModule):
             # no need of preliminary sigmoid, in binary case, we use BCEWithLogits
             y_hat_hard = (y_hat > self.threshold).to(y.device)
             y_out = y.float()
-
         # trick to not care about loss tensor init
-        loss = self.losses[0](y_hat, y_out)
+        if self.ignore_index is None:
+            loss = self.losses[0](y_hat, y_out)
 
-        if len(self.losses) > 1:
-            for loss_fn in self.losses[1:]:
-                loss += loss_fn(y_hat, y_out)
+            if len(self.losses) > 1:
+                for loss_fn in self.losses[1:]:
+                    loss += loss_fn(y_hat, y_out)
+        else: 
+            # Need to compute the ignored mask : 
+           
+            loss = self.get_masked_loss(self.losses[0],y_hat, y_out)
+
+            if len(self.losses) > 1:
+                for loss_fn in self.losses[1:]:
+                    loss += self.get_masked_loss(loss_fn, y_hat, y_out)
 
         return (loss, y_hat_hard, y_out)
+    
+    def get_masked_loss(self, criterion, y_hat, y_out):
+        """
+        Ad hoc case where the ignore_index == -1 and 0,1 for the binary case
+        """
+        mask = (y_out == self.ignore_index).float()
+        y_out[y_out==self.ignore_index] = 0
+        loss = (criterion(y_hat, y_out.float()) * mask).mean()
+
+        return loss
+        
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int, *args: Any, **kwargs: Any) -> Any:
         """

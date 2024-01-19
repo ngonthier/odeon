@@ -52,7 +52,6 @@ class UniversalPreProcessor:
         for key, value in self._input_fields.items():
 
             if value["type"] == "raster":
-
                 path = data[value["name"]] if self.root_dir is None else Path(str(self.root_dir)) / data[value["name"]]
                 band_indices = value["band_indices"] if "band_indices" in value else None
                 dtype_max = value["dtype_max"] if "dtype_max" in value else None
@@ -84,11 +83,14 @@ class UniversalPreProcessor:
                     if dtype in DTYPE_MAX.keys():
                         dtype_max = DTYPE_MAX[dtype]
 
+                added_value = value["added_value"] if "added_value" in value else None
+
                 output_dict[key] = self.apply_to_mask(path=path,
                                                       band_indices=band_indices,
                                                       bounds=bounds,
                                                       post_process=value['post_process'] if 'post_process' in value else None,
-                                                      dtype_max=dtype_max
+                                                      dtype_max=dtype_max, 
+                                                      added_value=added_value
                                                       )
 
             if "geometry" in data.keys():
@@ -134,7 +136,8 @@ class UniversalPreProcessor:
                       band_indices: Optional[List] = None,
                       bounds: Optional[List] = None,
                       post_process: Optional[str] = None,
-                      dtype_max: Optional[float] = DTYPE_MAX[InputDType.UINT8.value]
+                      dtype_max: Optional[float] = DTYPE_MAX[InputDType.UINT8.value],
+                      added_value: Optional[int] = 0
                       ) -> np.ndarray:
         # TODO Could be interesting to optimize window computation (DON'T REPEAT COMPUTATION FOR EACH MODALITY)
         # TODO but it bring side effect
@@ -143,6 +146,8 @@ class UniversalPreProcessor:
         if post_process is not None:
             if post_process == "floor_div":
                 mask = mask // dtype_max
+            if post_process == "add":
+                mask = mask + added_value
         if self.cache_dataset is False:
             src.close()
         img = reshape_as_image(mask)
