@@ -34,14 +34,14 @@ export PYTHONFAULTHANDLER=1
 # echo launched commands
 set -x
 
-export ODEON_PATH="/mnt/stores/store-DAI/equipiers/pvoitot/dchan/odeon"
+export ODEON_PATH="/mnt/stores/store-DAI/equipiers/ngonthier/dchan/odeon"
 export PYTHONPATH=$PYTHONPATH:$ODEON_PATH
 echo "PYTHONPATH ${PYTHONPATH}"
 
 export BATCH_SIZE=12
 export TRAIN_LR=0.0001
 export TRAIN_DATASET_NAME=hiucd
-export TRAIN_ROOT_DIR="/var/data/datasets/gers/change/patches"
+export TRAIN_ROOT_DIR="/mnt/stores/store-DAI/datasrc/dchan/hiucd_mini"
 export TRAIN_MODEL_TYPE=odeon
 export TRAIN_MODEL=fc_siam_conc
 export TRAIN_ENCODER_NAME=resnet34
@@ -49,8 +49,8 @@ export MLFLOW_EXPERIMENT_NAME=dchan_hiucd
 export TRAIN_OPTIMIZER=adamw
 #export MLFLOW_TRACKING_URI="http://smlpslurmmft1.ign.fr:8000"
 #export MLFLOW_ARTIFACT_LOCATION="file:/mnt/stores/store-DAI/pocs/slurm/dchan/mlruns/models"
-export MLFLOW_SAVE_DIR="/mnt/stores/store-DAI/pocs/slurm/dchan/mlruns"
-export TENSORBOARD_LOCATION="/mnt/stores/store-DAI/pocs/slurm/dchan/tensorboard"
+export MLFLOW_SAVE_DIR="/mnt/stores/store-DAI/pocs/slurm/dchan/mlruns_ngonthier"
+export TENSORBOARD_LOCATION="/mnt/stores/store-DAI/pocs/slurm/dchan/tensorboard_ngonthier"
 export TRAIN_TRANSFORM=True
 export TRAIN_TRANSFORM_TYPE=4
 export TRAIN_DATASETS=train,val,test
