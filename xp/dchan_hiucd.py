@@ -45,13 +45,13 @@ def build_params(stage: str, root_dir: str, batch_size: int, num_workers: int, t
 
 def main():
 
-    debug = False
+    debug = True
 
     possible_roots = [r'\\store\store-DAI\datasrc\dchan', r'C:\Users\NGonthier\Documents\Detection_changement\data', 
                       "/mnt/stores/store-DAI/datasrc/dchan", "/var/data/datasets"]
     root = None
     for possible_root in possible_roots:
-        if not os.path.exists(possible_root):
+        if os.path.exists(possible_root):
             root = possible_root
     if root is None:
         raise ValueError("no root")
@@ -108,7 +108,7 @@ def main():
     if 'TRAIN_DATASETS' in os.environ:
         train_datasets = os.environ['TRAIN_DATASETS'].split(",")
 
-    train_img_size = 128 #512
+    train_img_size = 64 #512
     if 'TRAIN_IMG_SIZE' in os.environ:
         train_img_size = int(os.environ['TRAIN_IMG_SIZE'])
 
@@ -153,7 +153,7 @@ def main():
     if 'TRAIN_LOG' in os.environ:
         has_log = eval(os.environ['TRAIN_LOG'])
 
-    max_epochs = 10 # 150
+    max_epochs = 20 # 150
     if 'TRAIN_MAX_EPOCHS' in os.environ:
         max_epochs = int(os.environ['TRAIN_MAX_EPOCHS'])
 
