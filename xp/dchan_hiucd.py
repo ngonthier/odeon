@@ -55,9 +55,10 @@ def main():
             root = possible_root
     if root is None:
         raise ValueError("no root")
+
     root_dir: str = os.path.join(root, 'hiucd_mini')
 
-    gpus = 0
+    gpus = 1
 
     if 'TRAIN_ROOT_DIR' in os.environ:
         root_dir = os.environ['TRAIN_ROOT_DIR']
@@ -87,6 +88,8 @@ def main():
     batch_size = 5
     if 'BATCH_SIZE' in os.environ:
         batch_size = int(os.environ['BATCH_SIZE'])
+    if debug: 
+        batch_size = 2
 
     train_lr = 0.0001
     if 'TRAIN_LR' in os.environ:
@@ -108,9 +111,11 @@ def main():
     if 'TRAIN_DATASETS' in os.environ:
         train_datasets = os.environ['TRAIN_DATASETS'].split(",")
 
-    train_img_size = 64 #512
+    train_img_size = 512
     if 'TRAIN_IMG_SIZE' in os.environ:
         train_img_size = int(os.environ['TRAIN_IMG_SIZE'])
+    if debug:
+        train_img_size = 64
 
 
     mlflow_experiment_name = "dchan_hiucd"
@@ -134,11 +139,10 @@ def main():
 
 
     tensorboard_location = "/mnt/stores/store-DAI/pocs/slurm/dchan/tensorboard"
-    if not os.path.exists(tensorboard_location):
-        path_model_checkpoint = 'tensorboard'
+    if not os.path.exists(tensorboard_location) or debug:
+        tensorboard_location = 'tensorboard'
     if 'TENSORBOARD_LOCATION' in os.environ:
-        tensorboard_location = os.environ['TENSORBOARD_LOCATION']       
-
+        tensorboard_location = os.environ['TENSORBOARD_LOCATION']    
 
     has_transform = False
     if 'TRAIN_TRANSFORM' in os.environ:
@@ -153,7 +157,7 @@ def main():
     if 'TRAIN_LOG' in os.environ:
         has_log = eval(os.environ['TRAIN_LOG'])
 
-    max_epochs = 20 # 150
+    max_epochs = 150
     if 'TRAIN_MAX_EPOCHS' in os.environ:
         max_epochs = int(os.environ['TRAIN_MAX_EPOCHS'])
 
@@ -203,10 +207,13 @@ def main():
     if not os.path.exists(path_model_checkpoint):
         path_model_checkpoint = 'ckpt'
     save_top_k_models = 5
-    path_tb_log = os.path.join(tensorboard_location, 'logs')
+    if debug: save_top_k_models = 1
+    path_tb_log = os.path.join(tensorboard_location, 'logs') # /mnt/stores/store-DAI/pocs/slurm/dchan/tensorboard\logs  verifier si cela fonctionne 
+    print(path_tb_log)
 
     loggers = [DummyLogger()]
     tags = {}
+
     if has_log:        
         mlflow.set_tracking_uri(mlflow_tracking_uri)
 
@@ -329,7 +336,8 @@ def main():
     trainer_args["overfit_batches"] = overfit_batches
     
     if debug: 
-        trainer_args["max_epochs"] = 10 
+        trainer_args["accelerator"] = 'cpu' 
+        trainer_args["max_epochs"] = 4 
         trainer_args["limit_train_batches"] = 2
         trainer_args["limit_val_batches"] = 2
         trainer_args["limit_test_batches"] = 2
