@@ -29,7 +29,7 @@ def build_params(stage: str, root_dir: str, batch_size: int, num_workers: int, t
     res = {
          'input_fields': {"T0": {"name": "T0", "type": "raster", "dtype": "uint8", "band_indices": [1, 2, 3]},
                             "T1": {"name": "T1", "type": "raster", "dtype": "uint8", "band_indices": [1, 2, 3]},
-                            "mask": {"name": "change", "type": "mask", "encoding": "integer", "band_indices": [3], "post_process": "add", "added_value": -1} }, #, 
+                            "mask": {"name": "change", "type": "mask", "encoding": "integer", "band_indices": [3], "post_process": "add", "added_value": -1}}, #, 
         'dataloader_options' : {"batch_size": batch_size, "num_workers": num_workers},
         'input_file': dataset,
         'root_dir': root_dir,

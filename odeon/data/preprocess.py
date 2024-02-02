@@ -124,11 +124,11 @@ class UniversalPreProcessor:
             # apply centering between 0 and 1
             # to apply centering between -1 and 1, replace change MEAN_DEFAULT_VALUE and STD_DEFAULT_VALUE values to 0.5
             mean = np.repeat([MEAN_DEFAULT_VALUE], raster.shape[0])
-            mean = np.repeat([STD_DEFAULT_VALUE], raster.shape[0])
+            std = np.repeat([STD_DEFAULT_VALUE], raster.shape[0])
 
         return normalize(img=img,
                          mean=mean,
-                         std=mean,
+                         std=std,
                          max_pixel_value=dtype_max)
 
     def apply_to_mask(self,
