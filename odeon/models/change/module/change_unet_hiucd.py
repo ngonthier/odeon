@@ -5,7 +5,6 @@ from functools import partial
 import random
 from typing import Any, Callable, Dict, Optional, Tuple, cast, List
 
-# import matplotlib.pyplot as plt
 import pytorch_lightning as pl
 import segmentation_models_pytorch as smp
 import torch
@@ -22,6 +21,9 @@ from torchmetrics.classification import (  # type: ignore[attr-defined]
 from pytorch_lightning.loggers import TensorBoardLogger
 import io
 import matplotlib.pyplot as plt
+from matplotlib.colors import hex2color
+import numpy as np
+
 import PIL.Image
 from torchvision.transforms import ToTensor
 
@@ -63,6 +65,26 @@ def resize(input,
                         f'out size {(output_h, output_w)} is `nx+1`')
     return F.interpolate(input, size, scale_factor, mode, align_corners)
 
+lut_colors = {
+0   : '#FF00FF',
+1   : '#db0e9a',
+2   : '#938e7b',
+3   : '#f80c00',
+4   : '#a97101',
+5   : '#1553ae',
+6   : '#194a26',
+7   : '#46e483',
+8   : '#f3a60d',
+9   : '#660082',
+}
+
+def convert_to_color(arr_2d: np.ndarray, palette: dict = lut_colors) -> np.ndarray:
+    rgb_palette = {k: tuple(int(i * 255) for i in hex2color(v)) for k, v in palette.items()}
+    arr_3d = np.zeros((arr_2d.shape[0], arr_2d.shape[1], 3), dtype=np.uint8)
+    for c, i in rgb_palette.items():
+        m = arr_2d == c
+        arr_3d[m] = i
+    return arr_3d
 
 # https://github.com/pytorch/pytorch/issues/60979
 # https://github.com/pytorch/pytorch/pull/61045
@@ -529,3 +551,5 @@ class ChangeUnet(pl.LightningModule):
                 "optimizer": optimizer,
                 "lr_scheduler": sch
             }
+
+

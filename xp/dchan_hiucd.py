@@ -115,7 +115,7 @@ def main():
     if 'TRAIN_IMG_SIZE' in os.environ:
         train_img_size = int(os.environ['TRAIN_IMG_SIZE'])
     if debug:
-        train_img_size = 64
+        train_img_size = 32
 
 
     mlflow_experiment_name = "dchan_hiucd"
@@ -352,7 +352,7 @@ def main():
                                        mode="max",
                                        monitor='val_bin_iou')
     
-    tb_sampler = TensorboardGenerativeModelImageSampler(input)
+    tb_sampler = TensorboardGenerativeModelImageSampler(input, multitask=True, ignore_index=-1)
     callbacks = [tb_sampler, lr_monitor, model_checkpoint]
 
     trainer = Trainer(logger=loggers, callbacks=callbacks, **trainer_args)
