@@ -209,7 +209,6 @@ def main():
     save_top_k_models = 5
     if debug: save_top_k_models = 1
     path_tb_log = os.path.join(tensorboard_location, 'logs') # /mnt/stores/store-DAI/pocs/slurm/dchan/tensorboard\logs  verifier si cela fonctionne 
-    print(path_tb_log)
 
     loggers = [DummyLogger()]
     tags = {}
