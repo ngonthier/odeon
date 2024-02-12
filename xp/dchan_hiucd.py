@@ -52,6 +52,7 @@ def main():
 
     possible_roots = [r'\\store\store-DAI\datasrc\dchan', r'C:\Users\NGonthier\Documents\Detection_changement\data', 
                       "/mnt/stores/store-DAI/datasrc/dchan", "/var/data/datasets"]
+    
     root = None
     for possible_root in possible_roots:
         if os.path.exists(possible_root):
@@ -120,6 +121,8 @@ def main():
     if debug:
         train_img_size = 32
 
+    dataset = 'hiucd_mini'
+    model_type = train_model
 
     if mlflow:
         mlflow_experiment_name = "dchan_hiucd"
