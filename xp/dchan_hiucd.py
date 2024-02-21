@@ -246,13 +246,15 @@ def main():
                 # tags=tags,
                 artifact_location=artifact_location
             )
+            path_experiment_name = mlflow_experiment_name
 
         if clearml:
             task = Task.init(project_name=clearml_experiment_name, task_name='ClearML logging')
             #clearml_logger = task.get_logger()
+            path_experiment_name = clearml_experiment_name
         
-        os.makedirs(os.path.join(path_tb_log, mlflow_experiment_name, name), exist_ok=True)
-        logger = pl_loggers.TensorBoardLogger(save_dir=path_tb_log, name=os.path.join(mlflow_experiment_name, name))
+        os.makedirs(os.path.join(path_tb_log, path_experiment_name, name), exist_ok=True)
+        logger = pl_loggers.TensorBoardLogger(save_dir=path_tb_log, name=os.path.join(path_experiment_name, name))
 
         if mlflow:
             loggers = [logger, mlflow_logger]
