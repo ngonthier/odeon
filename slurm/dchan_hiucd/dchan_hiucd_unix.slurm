@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=dchan_hiucd
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=3
+#SBATCH --ntasks-per-node=1
 #SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=12
 #SBATCH --hint=nomultithread
@@ -52,7 +52,6 @@ export CLEARML_CACHE_DIR="/var/data/shared/clearml/cache"
 export CLEARML_CONFIG_FILE="/var/data/shared/clearml/clearml_dchan.conf"
 export CLEARML_API_DEFAULT_REQ_METHOD=POST
 
-cd $ODEON_PATH
 # Activate desired env
 eval "$(conda shell.bash hook)"
 conda activate dchan_ng

@@ -197,8 +197,7 @@ class TensorboardGenerativeModelImageSampler(Callback):
 
         for img_idx, (T0, T1, y_true, y_pred, idx) in enumerate(zip(*viz_batch)):
             # Create one single image with the 4 elements
-            y_true = convert_to_color(y_true, palette={0:'#000000', 1:'#FFFFFF', self.ignore_index:'#FF00FF'})
-            #y_pred = convert_to_color(y_pred, palette={0:'#000000',1:'#FFFFFF'})
+            y_true = convert_to_color(y_true.cpu(), palette={0:'#000000', 1:'#FFFFFF', self.ignore_index:'#FF00FF'})
 
             if y_pred.max().item() <= 1.0:
                 y_pred = y_pred * 255.0

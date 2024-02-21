@@ -46,7 +46,7 @@ def build_params(stage: str, root_dir: str, batch_size: int, num_workers: int, t
 
 def main():
 
-    debug = True
+    debug = False
     clearml = True
     mlflow = False
 
@@ -393,7 +393,7 @@ def main():
                 mlflow_logger.experiment.set_tag(mlflow_logger._run_id, k, v)
             
         if clearml:
-            task: Task = Task.init(
+            task: Task = Task.create(
                         project_name=clearml_experiment_name,
                         task_name=job_name
                     )
@@ -406,7 +406,7 @@ def main():
             task.set_configuration_object("test_params", config_type="datamodule", config_dict=test_params)
             task.set_configuration_object("trainer_args", config_type="trainer", config_dict=trainer_args)
 
-        print("Trainer Args", trainer_args)
+    print("Trainer Args", trainer_args)
 
     trainer.fit(model=model, datamodule=input)
     trainer.validate(model=model, datamodule=input) # Where are stored the values ?
