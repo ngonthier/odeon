@@ -392,7 +392,7 @@ def main():
             
         if clearml:
             task: Task = Task.init(
-                        project_name=mlflow_experiment_name,
+                        project_name=clearml_experiment_name,
                         task_name=job_name
                     )
             clearm_tags = ["slurm", "jean-zellou", dataset, model_type, encoder_name]
