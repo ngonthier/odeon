@@ -48,6 +48,8 @@ def main():
 
     debug = False
     clearml = True
+    if debug:
+        clearml = False
     mlflow = False
 
     possible_roots = [r'\\store\store-DAI\datasrc\dchan', r'C:\Users\NGonthier\Documents\Detection_changement\data', 
@@ -103,9 +105,11 @@ def main():
     if 'TRAIN_MODEL' in os.environ:
         train_model = os.environ['TRAIN_MODEL']        
 
-    encoder_name = "resnet18" #"resnet34"
+    encoder_name = "resnet34"
     if 'TRAIN_ENCODER_NAME' in os.environ:
-        encoder_name = os.environ['TRAIN_ENCODER_NAME']        
+        encoder_name = os.environ['TRAIN_ENCODER_NAME'] 
+    if debug: 
+        encoder_name = "resnet18"       
 
     encoder_weights = None
     if 'TRAIN_ENCODER_WEIGHTS' in os.environ:
@@ -115,11 +119,13 @@ def main():
     if 'TRAIN_DATASETS' in os.environ:
         train_datasets = os.environ['TRAIN_DATASETS'].split(",")
 
-    train_img_size = 512
+    train_img_size = 1024
     if 'TRAIN_IMG_SIZE' in os.environ:
         train_img_size = int(os.environ['TRAIN_IMG_SIZE'])
-    if debug:
-        train_img_size = 32
+
+    train_crop_size = train_img_size
+    if 'TRAIN_CROP_SIZE' in os.environ:
+        train_crop_size = int(os.environ['TRAIN_CROP_SIZE'])
 
     dataset = 'hiucd_mini'
     model_type = train_model
@@ -193,6 +199,18 @@ def main():
     if 'TRAIN_SEED' in os.environ:
         seed = int(os.environ['TRAIN_SEED'])
 
+    random_swap = 0.0
+    if 'TRAIN_RANDOM_SWAP' in os.environ:
+        random_swap = float(os.environ['TRAIN_RANDOM_SWAP'])
+
+    cudnn_benchmark = False
+    if 'CUDNN_BENCHMARK' in os.environ:
+        cudnn_benchmark = eval(os.environ['CUDNN_BENCHMARK'])
+
+    use_syncbn = False
+    if 'TRAIN_USE_SYNCBN' in os.environ:
+        use_syncbn = eval(os.environ['TRAIN_USE_SYNCBN'])
+
     if mlflow:
         print("mlflow_experiment_name", mlflow_experiment_name)
         print("mlflow_run_name", name)
@@ -216,7 +234,13 @@ def main():
     print("train_datasets", train_datasets)
     print("seed", seed)
     print("transform_type", transform_type)
-
+    print("dataset name", dataset)
+    print("dataset root_dir", root_dir)
+    print("random_swap", random_swap)
+    print("cudnn_benchmark", cudnn_benchmark)
+    print("use_syncbn", use_syncbn)
+    print("train_img_size", train_img_size)
+    print("train_crop_size", train_crop_size)
 
     path_model_checkpoint = '/var/data/shared/dchan/checkpoints'
     if not os.path.exists(path_model_checkpoint):
@@ -228,7 +252,8 @@ def main():
     loggers = [DummyLogger()]
     tags = {}
 
-    if has_log:      
+    if has_log:  
+        path_experiment_name = name    
         if mlflow:  
             mlflow.set_tracking_uri(mlflow_tracking_uri)
 
@@ -268,6 +293,7 @@ def main():
     print("Initializing datasets...")
 
     transform = None
+    transform_val_test = None
     if has_transform:
         if transform_type == 0:
             transform = [
@@ -298,12 +324,39 @@ def main():
                 A.GaussianBlur(p=0.5, blur_limit=(3, 3)),
                 A.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.3, hue=0.3, p=0.5)
             ]
+        elif transform_type == 3:
+            transform = [
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.RandomRotate90(p=0.5),
+                A.RandomResizedCrop(height=train_img_size,
+                                    width=train_img_size,
+                                    scale=(0.8, 1.2), p=0.5),
+                # A.GaussianBlur(p=0.5, blur_limit=(3, 3)),
+                A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2, p=0.2)
+            ]
+        elif transform_type == 4:
+            r = train_crop_size / train_img_size
+
+            transform = [
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.5),
+                A.RandomRotate90(p=0.5),
+                A.RandomResizedCrop(height=train_crop_size,
+                                    width=train_crop_size,
+                                    scale=(r * 0.8, r * 1.2), p=1.0),
+                A.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.2, p=0.5)
+            ]
+
+            transform_val_test = None # We will apply the model on image of size 1024*1024
+        else:
+            print('transform_type =',transform_type,'is unknown')
 
 
     nb_samples = 10
     fit_params = build_params(train_datasets[0], root_dir, batch_size, num_workers, transform, nb_samples, seed)
-    val_params = build_params(train_datasets[1], root_dir, batch_size, num_workers, None, nb_samples, seed)
-    test_params = build_params(train_datasets[2], root_dir, batch_size, num_workers, None, nb_samples, seed)
+    val_params = build_params(train_datasets[1], root_dir, batch_size, num_workers, transform_val_test, nb_samples, seed)
+    test_params = build_params(train_datasets[2], root_dir, batch_size, num_workers, transform_val_test, nb_samples, seed)
 
     print("train_datasets", train_datasets)
     print("fit_params", fit_params)
@@ -330,7 +383,9 @@ def main():
         optimizer=optimizer,
         loss=loss,
         ignore_index=-1, 
-        model_params = model_params
+        model_params = model_params,
+        andom_swap = random_swap,
+        use_syncbn=use_syncbn
     )
 
     # early_stopping = EarlyStopping(monitor="val_bin_iou", min_delta=0.0, patience=200)

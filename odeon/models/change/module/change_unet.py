@@ -290,7 +290,7 @@ class ChangeUnet(pl.LightningModule):
         """
         mask = (y_out == self.ignore_index).float()
         y_out[y_out==self.ignore_index] = 0
-        loss = (criterion(y_hat, y_out.float()) * mask).mean()
+        loss = (criterion(y_hat, y_out.float()) * (1 - mask)).mean()
 
         return loss
         
